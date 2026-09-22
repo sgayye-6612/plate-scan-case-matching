@@ -10,3 +10,16 @@ class ScanCreate(BaseModel):
     longitude: float
     scanned_at: datetime
     image_url: str | None = None
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class ClaimResponse(BaseModel):
+    message: str
+    case_id: int
+    status: str
+    tenant_id: int
+    claimed_by: int
