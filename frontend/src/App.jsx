@@ -1,7 +1,27 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import "./App.css";
 
 const API_URL = "http://localhost:8000";
+
+function getLocationName(latitude, longitude) {
+  const locations = [
+    { name: "Atlanta, Georgia", lat: 33.7490, lng: -84.3880 },
+    { name: "Newark, New Jersey", lat: 40.7357, lng: -74.1724 },
+    { name: "New York, New York", lat: 40.7128, lng: -74.0060 },
+    { name: "Hartford, Connecticut", lat: 41.7658, lng: -72.6734 },
+    { name: "Atlantic City, New Jersey", lat: 39.3643, lng: -74.4229 },
+    { name: "Las Vegas, Nevada", lat: 36.1699, lng: -115.1398 },
+    { name: "Phoenix, Arizona", lat: 33.4484, lng: -112.0740 },
+  ];
+
+  const location = locations.find(
+    (item) =>
+      Math.abs(item.lat - Number(latitude)) < 0.01 &&
+      Math.abs(item.lng - Number(longitude)) < 0.01
+  );
+
+  return location ? location.name : "Unknown Location";
+}
 
 function App() {
   const [username, setUsername] = useState("");
@@ -12,8 +32,12 @@ function App() {
   const [selectedCase, setSelectedCase] = useState(null);
   const [scans, setScans] = useState([]);
 
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [totalScans, setTotalScans] = useState(0);
+
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [casesLoading, setCasesLoading] = useState(false);
 
   // -------------------------
   // LOGIN
@@ -34,15 +58,14 @@ function App() {
         }),
       });
 
-      if (!response.ok) {
-        throw new Error("Invalid username or password");
-      }
-
       const data = await response.json();
 
-      setToken(data.username);
+      if (!response.ok) {
+        throw new Error(data.detail || "Login failed");
+      }
 
-      await loadCases(data.username);
+      // Current backend uses username as the bearer token
+      setToken(data.username);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -53,33 +76,47 @@ function App() {
   // -------------------------
   // LOAD CASES
   // -------------------------
-  async function loadCases(authToken = token) {
+  async function loadCases() {
+    if (!token) return;
+
+    setCasesLoading(true);
     setError("");
 
     try {
       const response = await fetch(`${API_URL}/api/v1/cases`, {
         headers: {
-          Authorization: `Bearer ${authToken}`,
+          Authorization: `Bearer ${token}`,
         },
       });
 
-      if (!response.ok) {
-        throw new Error("Failed to load cases");
-      }
-
       const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || "Failed to load cases");
+      }
 
       setCases(data);
     } catch (err) {
       setError(err.message);
+    } finally {
+      setCasesLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (token) {
+      loadCases();
+    }
+  }, [token]);
 
   // -------------------------
   // VIEW SCANS
   // -------------------------
   async function viewScans(caseItem) {
     setError("");
+    setSelectedCase(caseItem);
+    setScans([]);
+    setTotalScans(0);
 
     try {
       const response = await fetch(
@@ -91,14 +128,14 @@ function App() {
         }
       );
 
-      if (!response.ok) {
-        throw new Error("Failed to load scan history");
-      }
-
       const data = await response.json();
 
-      setSelectedCase(caseItem);
+      if (!response.ok) {
+        throw new Error(data.detail || "Failed to load scans");
+      }
+
       setScans(data);
+      setTotalScans(data.length);
     } catch (err) {
       setError(err.message);
     }
@@ -121,13 +158,21 @@ function App() {
         }
       );
 
-      if (!response.ok) {
-        const data = await response.json();
+      const data = await response.json();
 
+      if (!response.ok) {
         throw new Error(data.detail || "Failed to claim case");
       }
 
       await loadCases();
+
+      if (selectedCase?.id === caseId) {
+        setSelectedCase(null);
+        setScans([]);
+        setTotalScans(0);
+      }
+
+      alert("Case claimed successfully!");
     } catch (err) {
       setError(err.message);
     }
@@ -138,51 +183,97 @@ function App() {
   // -------------------------
   function logout() {
     setToken("");
+    setUsername("");
+    setPassword("");
     setCases([]);
     setSelectedCase(null);
     setScans([]);
-    setUsername("");
-    setPassword("");
+    setTotalScans(0);
+    setStatusFilter("all");
     setError("");
   }
 
   // -------------------------
-  // LOGIN SCREEN
+  // FILTERS
+  // -------------------------
+  const filteredCases =
+    statusFilter === "all"
+      ? cases
+      : cases.filter((item) => item.status === statusFilter);
+
+  const activeCases = cases.filter(
+    (item) => item.status === "active"
+  ).length;
+
+  const pendingCases = cases.filter(
+    (item) => item.status === "pending_claim"
+  ).length;
+
+  // -------------------------
+  // LOGIN PAGE
   // -------------------------
   if (!token) {
     return (
       <div className="login-page">
         <div className="login-card">
-          <h1>Plate Scan Case Management</h1>
+          <div className="login-icon">🚗</div>
 
-          <h2>Login</h2>
+          <h1>Case Matching Service</h1>
 
-          <input
-            className="login-input"
-            placeholder="Username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-          />
+          <p className="login-subtitle">
+            Recovery Agency Dashboard
+          </p>
 
-          <input
-            className="login-input"
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
+          <form
+            className="login-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              login();
+            }}
+          >
+            <div className="form-group">
+              <label htmlFor="username">Username</label>
 
-          <button className="login-button" onClick={login}>
-            {loading ? "Logging in..." : "Login"}
-          </button>
+              <input
+                id="username"
+                type="text"
+                placeholder="Enter username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+              />
+            </div>
 
-          {error && <p className="error-message">{error}</p>}
+            <div className="form-group">
+              <label htmlFor="password">Password</label>
 
-          <div className="demo-users">
-            <strong>Demo users</strong>
+              <input
+                id="password"
+                type="password"
+                placeholder="Enter password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
 
-            <p>agent_a / password123</p>
-            <p>agent_b / password123</p>
+            {error && (
+              <div className="error-message">
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              className="login-button"
+              disabled={loading}
+            >
+              {loading ? "Signing in..." : "Sign In"}
+            </button>
+          </form>
+
+          <div className="demo-login">
+            <div className="demo-title">Demo accounts</div>
+            <div>agent_a / password123</div>
+            <div>agent_b / password123</div>
           </div>
         </div>
       </div>
@@ -193,161 +284,216 @@ function App() {
   // DASHBOARD
   // -------------------------
   return (
-    <div className="dashboard">
-      <header className="dashboard-header">
+    <div className="app">
+      <header className="header">
         <div>
-          <h1>Case Management Dashboard</h1>
+          <h1>Plate Scan & Case Matching</h1>
 
           <p>
-            Logged in as <strong>{token}</strong>
+            Vehicle recovery case management dashboard
           </p>
         </div>
 
-        <div>
-          <button
-            className="refresh-button"
-            onClick={() => loadCases()}
-          >
-            Refresh Cases
-          </button>
+        <div className="header-right">
+          <span className="logged-user">
+            👤 {username}
+          </span>
 
           <button
-            className="refresh-button"
+            className="logout-button"
             onClick={logout}
-            style={{ marginLeft: "10px" }}
           >
             Logout
           </button>
         </div>
       </header>
 
-      {error && <p className="error-message">{error}</p>}
+      {error && (
+        <div className="global-error">
+          {error}
+        </div>
+      )}
 
-      {/* CASES TABLE */}
-
-      <section className="dashboard-card">
-        <h2>Cases</h2>
-
-        {cases.length === 0 ? (
-          <p>No cases found.</p>
-        ) : (
-          <div className="table-container">
-            <table>
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>VIN</th>
-                  <th>Status</th>
-                  <th>Tenant</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {cases.map((caseItem) => (
-                  <tr key={caseItem.id}>
-                    <td>{caseItem.id}</td>
-
-                    <td>{caseItem.vin}</td>
-
-                    <td>
-                      <span
-                        className={`status ${caseItem.status}`}
-                      >
-                        {caseItem.status}
-                      </span>
-                    </td>
-
-                    <td>
-                      {caseItem.tenant_id ?? "Unclaimed"}
-                    </td>
-
-                    <td>
-                      <button
-                        className="action-button"
-                        onClick={() => viewScans(caseItem)}
-                      >
-                        View Scans
-                      </button>
-
-                      {caseItem.status === "pending_claim" && (
-                        <button
-                          className="claim-button"
-                          onClick={() => claimCase(caseItem.id)}
-                        >
-                          Claim
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      <main className="dashboard">
+        {/* SUMMARY */}
+        <section className="summary-grid">
+          <div className="summary-card">
+            <div className="summary-icon">📁</div>
+            <div>
+              <p>Total Cases</p>
+              <h2>{cases.length}</h2>
+            </div>
           </div>
-        )}
-      </section>
 
-      {/* SCAN HISTORY */}
+          <div className="summary-card">
+            <div className="summary-icon">🚨</div>
+            <div>
+              <p>Active Cases</p>
+              <h2>{activeCases}</h2>
+            </div>
+          </div>
 
-      {selectedCase && (
-        <section className="dashboard-card">
+          <div className="summary-card">
+            <div className="summary-icon">⏳</div>
+            <div>
+              <p>Pending Claims</p>
+              <h2>{pendingCases}</h2>
+            </div>
+          </div>
+
+          <div className="summary-card">
+            <div className="summary-icon">📡</div>
+            <div>
+              <p>Viewed Scans</p>
+              <h2>{totalScans}</h2>
+            </div>
+          </div>
+        </section>
+
+        {/* CASES */}
+        <section className="content-card">
           <div className="section-header">
             <div>
-              <h2>Scan History</h2>
+              <h2>Cases</h2>
 
               <p>
-                VIN: <strong>{selectedCase.vin}</strong>
+                Cases available to your agency and claimable
+                pending cases
               </p>
             </div>
 
             <button
-              className="close-button"
-              onClick={() => {
-                setSelectedCase(null);
-                setScans([]);
-              }}
+              className="refresh-button"
+              onClick={loadCases}
             >
-              Close
+              ↻ Refresh
             </button>
           </div>
 
-          {scans.length === 0 ? (
-            <p>No scans found for this case.</p>
+          <div className="filters">
+            <button
+              className={
+                statusFilter === "all"
+                  ? "filter active"
+                  : "filter"
+              }
+              onClick={() => setStatusFilter("all")}
+            >
+              All
+            </button>
+
+            <button
+              className={
+                statusFilter === "active"
+                  ? "filter active"
+                  : "filter"
+              }
+              onClick={() => setStatusFilter("active")}
+            >
+              Active
+            </button>
+
+            <button
+              className={
+                statusFilter === "pending_claim"
+                  ? "filter active"
+                  : "filter"
+              }
+              onClick={() =>
+                setStatusFilter("pending_claim")
+              }
+            >
+              Pending Claim
+            </button>
+
+            <button
+              className={
+                statusFilter === "closed"
+                  ? "filter active"
+                  : "filter"
+              }
+              onClick={() => setStatusFilter("closed")}
+            >
+              Closed
+            </button>
+          </div>
+
+          {casesLoading ? (
+            <div className="loading">
+              Loading cases...
+            </div>
+          ) : filteredCases.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-icon">📂</div>
+              <h3>No cases found</h3>
+              <p>
+                There are no cases available for this filter.
+              </p>
+            </div>
           ) : (
             <div className="table-container">
               <table>
                 <thead>
                   <tr>
-                    <th>Plate</th>
-                    <th>Latitude</th>
-                    <th>Longitude</th>
-                    <th>Scanned At</th>
-                    <th>Image</th>
+                    <th>Case ID</th>
+                    <th>VIN</th>
+                    <th>Status</th>
+                    <th>Tenant</th>
+                    <th>Action</th>
                   </tr>
                 </thead>
 
                 <tbody>
-                  {scans.map((scan) => (
-                    <tr key={scan.id}>
-                      <td>{scan.plate}</td>
+                  {filteredCases.map((caseItem) => (
+                    <tr key={caseItem.id}>
+                      <td>
+                        <strong>#{caseItem.id}</strong>
+                      </td>
 
-                      <td>{scan.latitude}</td>
-
-                      <td>{scan.longitude}</td>
-
-                      <td>{scan.scanned_at}</td>
+                      <td className="vin">
+                        {caseItem.vin}
+                      </td>
 
                       <td>
-                        {scan.image_url ? (
-                          <a
-                            href={scan.image_url}
-                            target="_blank"
-                            rel="noreferrer"
+                        <span
+                          className={`status ${caseItem.status}`}
+                        >
+                          {caseItem.status ===
+                          "pending_claim"
+                            ? "Pending Claim"
+                            : caseItem.status
+                                .charAt(0)
+                                .toUpperCase() +
+                              caseItem.status.slice(1)}
+                        </span>
+                      </td>
+
+                      <td>
+                        {caseItem.tenant_id
+                          ? `Tenant ${caseItem.tenant_id}`
+                          : "Claimable"}
+                      </td>
+
+                      <td className="actions">
+                        <button
+                          className="view-button"
+                          onClick={() =>
+                            viewScans(caseItem)
+                          }
+                        >
+                          View Scans
+                        </button>
+
+                        {caseItem.status ===
+                          "pending_claim" && (
+                          <button
+                            className="claim-button"
+                            onClick={() =>
+                              claimCase(caseItem.id)
+                            }
                           >
-                            View Image
-                          </a>
-                        ) : (
-                          "N/A"
+                            Claim
+                          </button>
                         )}
                       </td>
                     </tr>
@@ -357,7 +503,147 @@ function App() {
             </div>
           )}
         </section>
-      )}
+
+        {/* SCANS */}
+        {selectedCase && (
+          <section className="content-card scan-section">
+            <div className="section-header">
+              <div>
+                <h2>
+                  Scan History — Case #{selectedCase.id}
+                </h2>
+
+                <p>
+                  VIN:{" "}
+                  <strong>{selectedCase.vin}</strong>
+                </p>
+              </div>
+
+              <button
+                className="close-button"
+                onClick={() => {
+                  setSelectedCase(null);
+                  setScans([]);
+                  setTotalScans(0);
+                }}
+              >
+                Close
+              </button>
+            </div>
+
+            {scans.length === 0 ? (
+              <div className="empty-state">
+                <div className="empty-icon">📡</div>
+                <h3>No scans found</h3>
+                <p>
+                  No scan records are available for this case.
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="location-trail">
+                  <h3>📍 Vehicle Location Trail</h3>
+
+                  <div className="trail">
+                    {scans.map((scan, index) => (
+                      <div
+                        className="trail-item"
+                        key={scan.id}
+                      >
+                        <div className="trail-number">
+                          {index + 1}
+                        </div>
+
+                        <div className="trail-content">
+                          <strong>
+                            {getLocationName(
+                              scan.latitude,
+                              scan.longitude
+                            )}
+                          </strong>
+
+                          <span>
+                            {new Date(
+                              scan.scanned_at
+                            ).toLocaleString()}
+                          </span>
+
+                          <small>
+                            Coordinates:{" "}
+                            {scan.latitude},{" "}
+                            {scan.longitude}
+                          </small>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="table-container scan-table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Plate</th>
+                        <th>Location</th>
+                        <th>Coordinates</th>
+                        <th>Scanned At</th>
+                        <th>Image</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {scans.map((scan, index) => (
+                        <tr key={scan.id}>
+                          <td>{index + 1}</td>
+
+                          <td>
+                            <strong>{scan.plate}</strong>
+                          </td>
+
+                          <td>
+                            <strong>
+                              {getLocationName(
+                                scan.latitude,
+                                scan.longitude
+                              )}
+                            </strong>
+                          </td>
+
+                          <td>
+                            {scan.latitude},{" "}
+                            {scan.longitude}
+                          </td>
+
+                          <td>
+                            {new Date(
+                              scan.scanned_at
+                            ).toLocaleString()}
+                          </td>
+
+                          <td>
+                            {scan.image_url ? (
+                              <a
+                                href={scan.image_url}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                View Image
+                              </a>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </section>
+        )}
+      </main>
     </div>
   );
 }
