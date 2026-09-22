@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from .database import SessionLocal
@@ -16,10 +16,12 @@ def get_db():
         db.close()
 
 
-@router.post("/scans")
-def create_scan(scan: ScanCreate, db: Session = Depends(get_db)):
-
-    # Find camera and its tenant
+@router.post("/scans", status_code=status.HTTP_201_CREATED)
+def create_scan(
+    scan: ScanCreate,
+    db: Session = Depends(get_db)
+):
+    # 1. Resolve camera and tenant
     camera = (
         db.query(Camera)
         .filter(Camera.camera_id == scan.camera_id)
@@ -32,7 +34,7 @@ def create_scan(scan: ScanCreate, db: Session = Depends(get_db)):
             detail="Camera not found"
         )
 
-    # Store every scan
+    # 2. Store every scan
     new_scan = Scan(
         camera_id=camera.id,
         plate=scan.plate,
@@ -47,7 +49,7 @@ def create_scan(scan: ScanCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_scan)
 
-    # Check whether this tenant already has an active case
+    # 3. Check for an active case belonging to this tenant
     active_case = (
         db.query(Case)
         .filter(
@@ -66,7 +68,35 @@ def create_scan(scan: ScanCreate, db: Session = Depends(get_db)):
             "case_status": active_case.status
         }
 
-    # No active case → create pending claim
+    # 4. Mock partner eligibility
+    eligible = True
+
+    if not eligible:
+        return {
+            "message": "Scan stored, but vehicle is not eligible",
+            "scan_id": new_scan.id,
+            "case_created": False
+        }
+
+    # 5. Avoid duplicate pending cases
+    existing_pending_case = (
+        db.query(Case)
+        .filter(
+            Case.vin == scan.vin,
+            Case.status == "pending_claim"
+        )
+        .first()
+    )
+
+    if existing_pending_case:
+        return {
+            "message": "Scan stored; pending case already exists",
+            "scan_id": new_scan.id,
+            "case_id": existing_pending_case.id,
+            "case_status": existing_pending_case.status
+        }
+
+    # 6. Create a new pending case
     new_case = Case(
         vin=scan.vin,
         status="pending_claim",
@@ -83,4 +113,12 @@ def create_scan(scan: ScanCreate, db: Session = Depends(get_db)):
         "scan_id": new_scan.id,
         "case_id": new_case.id,
         "case_status": new_case.status
+    }
+
+
+@router.post("/mock/partner-network/eligibility")
+def check_eligibility(vin: str):
+    return {
+        "vin": vin,
+        "still_eligible_for_repo": True
     }
