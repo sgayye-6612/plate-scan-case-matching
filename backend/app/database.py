@@ -1,9 +1,19 @@
+from pydantic_settings import BaseSettings
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-DATABASE_URL = "postgresql://postgres:1234@localhost:5432/plate_scan_db"
 
-engine = create_engine(DATABASE_URL)
+class Settings(BaseSettings):
+    DATABASE_URL: str
+
+    class Config:
+        env_file = ".env"
+
+
+settings = Settings()
+
+engine = create_engine(settings.DATABASE_URL)
+
 SessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,
