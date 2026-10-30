@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
   Camera,
@@ -26,7 +26,22 @@ import {
 } from "../lib/format.js";
 import { TextShimmer } from "./motion-primitives/text-shimmer";
 
+// The map library is large, so it only loads when a timeline is opened.
+const ScanMap = lazy(() => import("./ScanMap.jsx"));
+
 export default function ScanTimeline({ caseItem, scans, loading, claimingId, onClaim, onClose }) {
+  // Which scan is highlighted on the map + timeline (remembered per case).
+  const [active, setActive] = useState({ caseId: null, index: null });
+  const activeIndex = active.caseId === caseItem?.id ? active.index : null;
+  const cardRefs = useRef({});
+
+  function selectScan(index, scroll = false) {
+    setActive({ caseId: caseItem?.id, index });
+    if (scroll) {
+      cardRefs.current[index]?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }
+
   // Close the drawer with the Escape key.
   useEffect(() => {
     if (!caseItem) return;
@@ -165,6 +180,14 @@ export default function ScanTimeline({ caseItem, scans, loading, claimingId, onC
                 </div>
               ) : (
                 <>
+                  <Suspense fallback={<span className="skeleton skeleton-map" />}>
+                    <ScanMap
+                      key={caseItem.id}
+                      scans={ordered}
+                      activeIndex={activeIndex}
+                      onSelect={(index) => selectScan(index, true)}
+                    />
+                  </Suspense>
                   <p className="timeline-range">
                     <Clock size={13} /> {formatDateTime(summary.first)} → {formatDateTime(summary.last)}
                   </p>
@@ -186,7 +209,14 @@ export default function ScanTimeline({ caseItem, scans, loading, claimingId, onC
                           return (
                             <motion.article
                               key={scan.id ?? `${scan.scanned_at}-${index}`}
-                              className={`scan-card ${isLatest ? "is-latest" : ""}`}
+                              ref={(el) => {
+                                cardRefs.current[index] = el;
+                              }}
+                              className={`scan-card ${isLatest ? "is-latest" : ""} ${
+                                activeIndex === index ? "is-active" : ""
+                              }`}
+                              onClick={() => selectScan(index)}
+                              title="Show on map"
                               initial={{ opacity: 0, x: 18 }}
                               animate={{ opacity: 1, x: 0 }}
                               transition={{ duration: 0.35, delay: 0.1 + index * 0.06 }}

@@ -1473,3 +1473,216 @@ a {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Keep Chrome autofill dark */
+.field-input input:-webkit-autofill,
+.field-input input:-webkit-autofill:hover,
+.field-input input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 100px var(--bg-2) inset;
+  -webkit-text-fill-color: var(--text);
+  caret-color: var(--text);
+  transition: background-color 9999s ease-out;
+}
+
+/* =========================================
+   LIVE MAP TRAIL (Leaflet)
+   ========================================= */
+.scan-map {
+  position: relative;
+  margin: 12px 0 14px;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  background: #0b0f17;
+  box-shadow: 0 16px 40px -20px rgba(0, 0, 0, 0.8);
+}
+
+.scan-map-canvas {
+  height: 260px;
+  width: 100%;
+  background: #0b0f17;
+  z-index: 0;
+}
+
+.scan-map-bar {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: 10px;
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.scan-map-bar > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(10, 13, 20, 0.8);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(6px);
+}
+
+.map-replay {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  background: rgba(10, 13, 20, 0.8);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(6px);
+  transition: border-color 0.2s, color 0.2s;
+}
+
+.map-replay:hover {
+  color: var(--accent);
+  border-color: rgba(79, 209, 197, 0.5);
+}
+
+.map-replay:hover svg {
+  animation: spin 0.8s var(--ease) 1 reverse;
+}
+
+/* Route line: glow underneath + moving dashes on top */
+.leaflet-container path.trail-glow {
+  stroke: var(--accent);
+  stroke-width: 9;
+  stroke-opacity: 0.18;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.leaflet-container path.trail-line {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-opacity: 1;
+  fill: none;
+  stroke-dasharray: 8 8;
+  stroke-linecap: round;
+  animation: trail-flow 1s linear infinite;
+}
+
+@keyframes trail-flow {
+  to {
+    stroke-dashoffset: -16;
+  }
+}
+
+/* Stops */
+.leaflet-container path.trail-stop {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  fill: #0b0f17;
+  fill-opacity: 1;
+  cursor: pointer;
+  transition: fill 0.2s, stroke 0.2s;
+  animation: stop-pop 0.45s var(--ease) both;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.leaflet-container path.trail-stop:hover,
+.leaflet-container path.trail-stop.is-active {
+  fill: var(--accent);
+}
+
+.leaflet-container path.trail-stop.is-latest {
+  fill: var(--accent);
+  stroke: #fff;
+  animation: stop-pop 0.45s var(--ease) both, stop-pulse 1.8s ease-out 0.5s infinite;
+}
+
+@keyframes stop-pop {
+  from {
+    transform: scale(0);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+@keyframes stop-pulse {
+  0% {
+    filter: drop-shadow(0 0 0 rgba(79, 209, 197, 0.9));
+  }
+  100% {
+    filter: drop-shadow(0 0 10px rgba(79, 209, 197, 0));
+  }
+}
+
+/* Tooltip + attribution in the dark theme */
+.leaflet-tooltip.trail-tip {
+  display: grid;
+  gap: 2px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 10px 24px -8px rgba(0, 0, 0, 0.7);
+}
+
+.leaflet-tooltip.trail-tip span {
+  color: var(--text-2);
+}
+
+.leaflet-tooltip-top.trail-tip::before {
+  border-top-color: var(--surface-2);
+}
+
+.scan-map .leaflet-control-attribution {
+  font-size: 9px;
+  background: rgba(10, 13, 20, 0.7) !important;
+  color: var(--text-3);
+}
+
+.scan-map .leaflet-control-attribution a {
+  color: var(--text-2);
+}
+
+/* Timeline card linked to the map */
+.scan-card {
+  cursor: pointer;
+}
+
+.scan-card.is-active {
+  border-color: var(--accent);
+  background: rgba(79, 209, 197, 0.07);
+}
+
+.scan-card.is-active .scan-dot {
+  transform: scale(1.35);
+  background: var(--accent);
+}
+
+@media (max-width: 720px) {
+  .scan-map-canvas {
+    height: 210px;
+  }
+}
+
+.skeleton-map {
+  height: 260px;
+  margin: 12px 0 14px;
+  border-radius: 14px;
+}
+
+/* Leaflet's own CSS sets a light grey background; keep it dark while tiles load */
+.scan-map .leaflet-container {
+  background: #0b0f17;
+  font-family: inherit;
+}
