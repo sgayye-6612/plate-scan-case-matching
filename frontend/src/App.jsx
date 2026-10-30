@@ -1,650 +1,474 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import "./App.css";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
+import {
+  Archive,
+  ArrowRight,
+  CircleCheck,
+  CircleDot,
+  Layers,
+  LoaderCircle,
+  Lock,
+  LogOut,
+  RefreshCw,
+  ScanLine,
+  TriangleAlert,
+  User,
+  X,
+} from "lucide-react";
+import { TextEffect } from "./components/motion-primitives/text-effect";
+import { AnimatedGroup } from "./components/motion-primitives/animated-group";
+import { BorderTrail } from "./components/motion-primitives/border-trail";
+import { Magnetic } from "./components/motion-primitives/magnetic";
+import StatCard from "./components/StatCard.jsx";
+import CasesTable from "./components/CasesTable.jsx";
+import ScanTimeline from "./components/ScanTimeline.jsx";
+import { statusKey, toList } from "./lib/format.js";
 
 const API_URL = "http://localhost:8000";
+const SESSION_KEY = "platescan-session";
 
-function getLocationName(latitude, longitude) {
-  const locations = [
-    { name: "Atlanta, Georgia", lat: 33.7490, lng: -84.3880 },
-    { name: "Newark, New Jersey", lat: 40.7357, lng: -74.1724 },
-    { name: "New York, New York", lat: 40.7128, lng: -74.0060 },
-    { name: "Hartford, Connecticut", lat: 41.7658, lng: -72.6734 },
-    { name: "Atlantic City, New Jersey", lat: 39.3643, lng: -74.4229 },
-    { name: "Las Vegas, Nevada", lat: 36.1699, lng: -115.1398 },
-    { name: "Phoenix, Arizona", lat: 33.4484, lng: -112.0740 },
-  ];
+// Keeps you signed in after a page refresh (cleared on sign out / tab close).
+function loadSession() {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null");
+    return saved?.username ? saved : null;
+  } catch {
+    return null;
+  }
+}
 
-  const location = locations.find(
-    (item) =>
-      Math.abs(item.lat - Number(latitude)) < 0.01 &&
-      Math.abs(item.lng - Number(longitude)) < 0.01
-  );
-
-  return location ? location.name : "Unknown Location";
+function saveSession(session) {
+  try {
+    if (session) sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    else sessionStorage.removeItem(SESSION_KEY);
+  } catch {
+    /* storage unavailable: ignore */
+  }
 }
 
 function App() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [token, setToken] = useState("");
+  const [session, setSession] = useState(loadSession);
+  const currentUser = session?.username || "";
 
   const [cases, setCases] = useState([]);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [search, setSearch] = useState("");
   const [selectedCase, setSelectedCase] = useState(null);
   const [scans, setScans] = useState([]);
-
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [totalScans, setTotalScans] = useState(0);
-
-  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [casesLoading, setCasesLoading] = useState(false);
+  const [scansLoading, setScansLoading] = useState(false);
+  const [claimingId, setClaimingId] = useState(null);
+  const [toast, setToast] = useState(null); // { type: "success" | "error", text }
 
-  // -------------------------
-  // LOGIN
-  // -------------------------
-  async function login() {
-    setError("");
+  const notify = useCallback((type, text) => {
+    setToast({ type, text, id: Date.now() });
+  }, []);
+
+  // Hide toast automatically after 3.5 seconds.
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 3500);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+  const apiRequest = useCallback(
+    async (path, options = {}) => {
+      const headers = {
+        "Content-Type": "application/json",
+        ...(currentUser ? { Authorization: `Bearer ${currentUser}` } : {}),
+        ...options.headers,
+      };
+
+      const response = await fetch(`${API_URL}${path}`, { ...options, headers });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(data.detail || data.message || `Request failed (${response.status})`);
+      }
+      return data;
+    },
+    [currentUser]
+  );
+
+  const fetchCases = useCallback(async () => {
+    const data = await apiRequest("/api/v1/cases");
+    return toList(data, "cases");
+  }, [apiRequest]);
+
+  async function handleLogin(event) {
+    event.preventDefault();
     setLoading(true);
+    setToast(null);
 
     try {
       const response = await fetch(`${API_URL}/api/v1/login`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          username,
-          password,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
       });
-
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(data.detail || "Login failed");
+        throw new Error(data.detail || data.message || "Login failed. Check your credentials.");
       }
 
-      // Current backend uses username as the bearer token
-      setToken(data.username);
+      const next = {
+        username: data.username || username,
+        userId: data.user_id,
+        tenantId: data.tenant_id,
+      };
+      saveSession(next);
+      setSession(next);
+      notify("success", `Welcome, ${next.username}`);
     } catch (err) {
-      setError(err.message);
+      const message =
+        err instanceof TypeError
+          ? "Cannot reach the server. Is FastAPI running on port 8000?"
+          : err.message;
+      notify("error", message);
     } finally {
       setLoading(false);
     }
   }
 
-  // -------------------------
-  // LOAD CASES
-  // -------------------------
-  async function loadCases() {
-    if (!token) return;
-
-    setCasesLoading(true);
-    setError("");
-
-    try {
-      const response = await fetch(`${API_URL}/api/v1/cases`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.detail || "Failed to load cases");
-      }
-
-      setCases(data);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setCasesLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    if (token) {
-      loadCases();
-    }
-  }, [token]);
-
-  // -------------------------
-  // VIEW SCANS
-  // -------------------------
-  async function viewScans(caseItem) {
-    setError("");
-    setSelectedCase(caseItem);
-    setScans([]);
-    setTotalScans(0);
-
-    try {
-      const response = await fetch(
-        `${API_URL}/api/v1/cases/${caseItem.id}/scans`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.detail || "Failed to load scans");
-      }
-
-      setScans(data);
-      setTotalScans(data.length);
-    } catch (err) {
-      setError(err.message);
-    }
-  }
-
-  // -------------------------
-  // CLAIM CASE
-  // -------------------------
-  async function claimCase(caseId) {
-    setError("");
-
-    try {
-      const response = await fetch(
-        `${API_URL}/api/v1/cases/${caseId}/claim`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.detail || "Failed to claim case");
-      }
-
-      await loadCases();
-
-      if (selectedCase?.id === caseId) {
-        setSelectedCase(null);
-        setScans([]);
-        setTotalScans(0);
-      }
-
-      alert("Case claimed successfully!");
-    } catch (err) {
-      setError(err.message);
-    }
-  }
-
-  // -------------------------
-  // LOGOUT
-  // -------------------------
-  function logout() {
-    setToken("");
-    setUsername("");
-    setPassword("");
+  function handleSignOut() {
+    saveSession(null);
+    setSession(null);
     setCases([]);
     setSelectedCase(null);
     setScans([]);
-    setTotalScans(0);
+    setPassword("");
+    setSearch("");
     setStatusFilter("all");
-    setError("");
+    setToast(null);
   }
 
-  // -------------------------
-  // FILTERS
-  // -------------------------
-  const filteredCases =
-    statusFilter === "all"
-      ? cases
-      : cases.filter((item) => item.status === statusFilter);
+  // Load cases after sign in.
+  useEffect(() => {
+    if (!currentUser) return;
+    let cancelled = false;
 
-  const activeCases = cases.filter(
-    (item) => item.status === "active"
-  ).length;
+    async function load() {
+      setLoading(true);
+      try {
+        const list = await fetchCases();
+        if (!cancelled) setCases(list);
+      } catch (err) {
+        if (!cancelled) notify("error", err.message || "Could not load cases.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
 
-  const pendingCases = cases.filter(
-    (item) => item.status === "pending_claim"
-  ).length;
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser, fetchCases, notify]);
 
-  // -------------------------
-  // LOGIN PAGE
-  // -------------------------
-  if (!token) {
-    return (
-      <div className="login-page">
-        <div className="login-card">
-          <div className="login-icon">🚗</div>
+  async function refreshCases() {
+    setLoading(true);
+    try {
+      setCases(await fetchCases());
+      notify("success", "Cases refreshed");
+    } catch (err) {
+      notify("error", err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
 
-          <h1>Case Matching Service</h1>
+  async function openCase(caseItem) {
+    setSelectedCase(caseItem);
+    setScans([]);
+    setScansLoading(true);
 
-          <p className="login-subtitle">
-            Recovery Agency Dashboard
-          </p>
+    try {
+      const data = await apiRequest(`/api/v1/cases/${caseItem.id}/scans`);
+      setScans(toList(data, "scans"));
+    } catch (err) {
+      notify("error", `Could not load scan history: ${err.message}`);
+    } finally {
+      setScansLoading(false);
+    }
+  }
 
-          <form
-            className="login-form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              login();
-            }}
+  const closeCase = useCallback(() => {
+    setSelectedCase(null);
+    setScans([]);
+  }, []);
+
+  async function claimCase(caseId) {
+    setClaimingId(caseId);
+    try {
+      await apiRequest(`/api/v1/cases/${caseId}/claim`, { method: "POST" });
+      const list = await fetchCases();
+      setCases(list);
+      if (selectedCase?.id === caseId) {
+        const updated = list.find((item) => item.id === caseId);
+        if (updated) setSelectedCase(updated);
+      }
+      notify("success", `Case #${caseId} claimed for your agency`);
+    } catch (err) {
+      notify("error", err.message || "Could not claim this case.");
+    } finally {
+      setClaimingId(null);
+    }
+  }
+
+  const counts = useMemo(() => {
+    const result = { all: cases.length, pending_claim: 0, active: 0, closed: 0 };
+    cases.forEach((item) => {
+      const key = statusKey(item);
+      if (key in result) result[key] += 1;
+    });
+    return result;
+  }, [cases]);
+
+  const toastView = (
+    <div className="toast-zone" aria-live="polite">
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            key={toast.id}
+            className={`toast toast-${toast.type}`}
+            initial={{ opacity: 0, y: -16, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -16, scale: 0.96 }}
+            transition={{ type: "spring", stiffness: 400, damping: 30 }}
           >
-            <div className="form-group">
-              <label htmlFor="username">Username</label>
-
-              <input
-                id="username"
-                type="text"
-                placeholder="Enter username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-              />
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="password">Password</label>
-
-              <input
-                id="password"
-                type="password"
-                placeholder="Enter password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
-
-            {error && (
-              <div className="error-message">
-                {error}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              className="login-button"
-              disabled={loading}
-            >
-              {loading ? "Signing in..." : "Sign In"}
+            {toast.type === "error" ? <TriangleAlert size={16} /> : <CircleCheck size={16} />}
+            <span>{toast.text}</span>
+            <button type="button" onClick={() => setToast(null)} aria-label="Dismiss">
+              <X size={14} />
             </button>
-          </form>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
 
-          <div className="demo-login">
-            <div className="demo-title">Demo accounts</div>
-            <div>agent_a / password123</div>
-            <div>agent_b / password123</div>
-          </div>
+  // ---------------- LOGIN SCREEN ----------------
+  if (!currentUser) {
+    return (
+      <MotionConfig reducedMotion="user">
+        {toastView}
+        <div className="login-page">
+          <div className="login-grid" aria-hidden="true" />
+          <motion.div
+            className="login-orb"
+            aria-hidden="true"
+            animate={{ x: [0, 40, -20, 0], y: [0, -30, 20, 0] }}
+            transition={{ duration: 18, repeat: Infinity, ease: "easeInOut" }}
+          />
+
+          <motion.div
+            className="login-card"
+            initial={{ opacity: 0, y: 24, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+          >
+            {/* Motion Primitives: a light that runs around the card border */}
+            <BorderTrail className="border-trail" size={110} transition={{ repeat: Infinity, duration: 7, ease: "linear" }} />
+
+            <div className="brand">
+              <span className="brand-icon">
+                <ScanLine size={20} />
+                <motion.span
+                  className="brand-scan"
+                  animate={{ y: ["-60%", "60%", "-60%"] }}
+                  transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
+                />
+              </span>
+              <div>
+                <strong>PlateScan</strong>
+                <span>Case Matching Platform</span>
+              </div>
+            </div>
+
+            <div className="login-heading">
+              <TextEffect preset="fade-in-blur" as="h1">
+                Welcome back
+              </TextEffect>
+              <p>Sign in to access your agency's case dashboard.</p>
+            </div>
+
+            <form onSubmit={handleLogin} className="login-form">
+              {/* Motion Primitives: fields appear one after another */}
+              <AnimatedGroup className="login-fields" preset="blur-slide">
+              <label className="field">
+                <span>Username</span>
+                <span className="field-input">
+                  <User size={16} />
+                  <input
+                    type="text"
+                    value={username}
+                    onChange={(event) => setUsername(event.target.value)}
+                    placeholder="Enter your username"
+                    autoComplete="username"
+                    required
+                  />
+                </span>
+              </label>
+
+              <label className="field">
+                <span>Password</span>
+                <span className="field-input">
+                  <Lock size={16} />
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    placeholder="Enter your password"
+                    autoComplete="current-password"
+                    required
+                  />
+                </span>
+              </label>
+
+              {/* Motion Primitives: button gently follows the mouse */}
+              <Magnetic intensity={0.12} range={160}>
+                <motion.button
+                  className="btn btn-primary btn-lg"
+                  type="submit"
+                  disabled={loading}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  {loading ? <LoaderCircle size={16} className="spin" /> : null}
+                  {loading ? "Signing in…" : "Sign in"}
+                  {!loading && <ArrowRight size={16} />}
+                </motion.button>
+              </Magnetic>
+              </AnimatedGroup>
+            </form>
+
+            <p className="login-footer">Demo users: agent_a / agent_b · password123</p>
+          </motion.div>
         </div>
-      </div>
+      </MotionConfig>
     );
   }
 
-  // -------------------------
-  // DASHBOARD
-  // -------------------------
+  // ---------------- DASHBOARD ----------------
+  const cards = [
+    { key: "all", label: "Total cases", value: counts.all, icon: Layers, tone: "total" },
+    { key: "pending_claim", label: "Pending claim", value: counts.pending_claim, icon: CircleDot, tone: "pending" },
+    { key: "active", label: "Active", value: counts.active, icon: CircleCheck, tone: "active" },
+    { key: "closed", label: "Closed", value: counts.closed, icon: Archive, tone: "closed" },
+  ];
+
   return (
-    <div className="app">
-      <header className="header">
-        <div>
-          <h1>Plate Scan & Case Matching</h1>
+    <MotionConfig reducedMotion="user">
+      {toastView}
+      <div className="app-shell">
+        <header className="topbar">
+          <div className="brand">
+            <span className="brand-icon">
+              <ScanLine size={18} />
+            </span>
+            <div>
+              <strong>PlateScan</strong>
+              <span>Case Matching Platform</span>
+            </div>
+          </div>
 
-          <p>
-            Vehicle recovery case management dashboard
-          </p>
-        </div>
+          <div className="topbar-right">
+            <div className="user-chip">
+              <span className="avatar">{currentUser.slice(0, 1).toUpperCase()}</span>
+              <span className="user-text">
+                <strong>{currentUser}</strong>
+                {session?.tenantId != null && <span>Tenant {session.tenantId}</span>}
+              </span>
+            </div>
+            <button type="button" className="btn btn-ghost" onClick={handleSignOut}>
+              <LogOut size={15} />
+              <span className="hide-sm">Sign out</span>
+            </button>
+          </div>
+        </header>
 
-        <div className="header-right">
-          <span className="logged-user">
-            👤 {username}
-          </span>
-
-          <button
-            className="logout-button"
-            onClick={logout}
+        <main className="dashboard">
+          <motion.section
+            className="hero"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
           >
-            Logout
-          </button>
-        </div>
-      </header>
-
-      {error && (
-        <div className="global-error">
-          {error}
-        </div>
-      )}
-
-      <main className="dashboard">
-        {/* SUMMARY */}
-        <section className="summary-grid">
-          <div className="summary-card">
-            <div className="summary-icon">📁</div>
             <div>
-              <p>Total Cases</p>
-              <h2>{cases.length}</h2>
-            </div>
-          </div>
-
-          <div className="summary-card">
-            <div className="summary-icon">🚨</div>
-            <div>
-              <p>Active Cases</p>
-              <h2>{activeCases}</h2>
-            </div>
-          </div>
-
-          <div className="summary-card">
-            <div className="summary-icon">⏳</div>
-            <div>
-              <p>Pending Claims</p>
-              <h2>{pendingCases}</h2>
-            </div>
-          </div>
-
-          <div className="summary-card">
-            <div className="summary-icon">📡</div>
-            <div>
-              <p>Viewed Scans</p>
-              <h2>{totalScans}</h2>
-            </div>
-          </div>
-        </section>
-
-        {/* CASES */}
-        <section className="content-card">
-          <div className="section-header">
-            <div>
-              <h2>Cases</h2>
-
-              <p>
-                Cases available to your agency and claimable
-                pending cases
+              <p className="eyebrow">
+                <span className="live-dot" /> Live overview
               </p>
+              <TextEffect as="h1" per="char" preset="blur" speedReveal={1.4}>
+                Case dashboard
+              </TextEffect>
+              <p className="muted">Monitor plate matches, claim new cases and follow each vehicle's trail.</p>
             </div>
 
-            <button
-              className="refresh-button"
-              onClick={loadCases}
-            >
-              ↻ Refresh
-            </button>
-          </div>
-
-          <div className="filters">
-            <button
-              className={
-                statusFilter === "all"
-                  ? "filter active"
-                  : "filter"
-              }
-              onClick={() => setStatusFilter("all")}
-            >
-              All
-            </button>
-
-            <button
-              className={
-                statusFilter === "active"
-                  ? "filter active"
-                  : "filter"
-              }
-              onClick={() => setStatusFilter("active")}
-            >
-              Active
-            </button>
-
-            <button
-              className={
-                statusFilter === "pending_claim"
-                  ? "filter active"
-                  : "filter"
-              }
-              onClick={() =>
-                setStatusFilter("pending_claim")
-              }
-            >
-              Pending Claim
-            </button>
-
-            <button
-              className={
-                statusFilter === "closed"
-                  ? "filter active"
-                  : "filter"
-              }
-              onClick={() => setStatusFilter("closed")}
-            >
-              Closed
-            </button>
-          </div>
-
-          {casesLoading ? (
-            <div className="loading">
-              Loading cases...
-            </div>
-          ) : filteredCases.length === 0 ? (
-            <div className="empty-state">
-              <div className="empty-icon">📂</div>
-              <h3>No cases found</h3>
-              <p>
-                There are no cases available for this filter.
-              </p>
-            </div>
-          ) : (
-            <div className="table-container">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Case ID</th>
-                    <th>VIN</th>
-                    <th>Status</th>
-                    <th>Tenant</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {filteredCases.map((caseItem) => (
-                    <tr key={caseItem.id}>
-                      <td>
-                        <strong>#{caseItem.id}</strong>
-                      </td>
-
-                      <td className="vin">
-                        {caseItem.vin}
-                      </td>
-
-                      <td>
-                        <span
-                          className={`status ${caseItem.status}`}
-                        >
-                          {caseItem.status ===
-                          "pending_claim"
-                            ? "Pending Claim"
-                            : caseItem.status
-                                .charAt(0)
-                                .toUpperCase() +
-                              caseItem.status.slice(1)}
-                        </span>
-                      </td>
-
-                      <td>
-                        {caseItem.tenant_id
-                          ? `Tenant ${caseItem.tenant_id}`
-                          : "Claimable"}
-                      </td>
-
-                      <td className="actions">
-                        <button
-                          className="view-button"
-                          onClick={() =>
-                            viewScans(caseItem)
-                          }
-                        >
-                          View Scans
-                        </button>
-
-                        {caseItem.status ===
-                          "pending_claim" && (
-                          <button
-                            className="claim-button"
-                            onClick={() =>
-                              claimCase(caseItem.id)
-                            }
-                          >
-                            Claim
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-
-        {/* SCANS */}
-        {selectedCase && (
-          <section className="content-card scan-section">
-            <div className="section-header">
-              <div>
-                <h2>
-                  Scan History — Case #{selectedCase.id}
-                </h2>
-
-                <p>
-                  VIN:{" "}
-                  <strong>{selectedCase.vin}</strong>
-                </p>
-              </div>
-
-              <button
-                className="close-button"
-                onClick={() => {
-                  setSelectedCase(null);
-                  setScans([]);
-                  setTotalScans(0);
-                }}
+            <Magnetic intensity={0.25} range={120}>
+              <motion.button
+                type="button"
+                className="btn btn-primary hero-btn"
+                onClick={refreshCases}
+                disabled={loading}
+                whileTap={{ scale: 0.97 }}
               >
-                Close
-              </button>
-            </div>
+                <RefreshCw size={15} className={loading ? "spin" : ""} />
+                {loading ? "Refreshing…" : "Refresh"}
+              </motion.button>
+            </Magnetic>
+          </motion.section>
 
-            {scans.length === 0 ? (
-              <div className="empty-state">
-                <div className="empty-icon">📡</div>
-                <h3>No scans found</h3>
-                <p>
-                  No scan records are available for this case.
-                </p>
-              </div>
-            ) : (
-              <>
-                <div className="location-trail">
-                  <h3>📍 Vehicle Location Trail</h3>
+          {/* Motion Primitives: cards fade + slide in one by one */}
+          <AnimatedGroup as="section" className="stat-grid" preset="blur-slide">
+            {cards.map((card, index) => (
+              <StatCard
+                key={card.key}
+                index={index}
+                label={card.label}
+                value={card.value}
+                total={counts.all}
+                icon={card.icon}
+                tone={card.tone}
+                active={statusFilter === card.key}
+                onClick={() => setStatusFilter(card.key)}
+              />
+            ))}
+          </AnimatedGroup>
 
-                  <div className="trail">
-                    {scans.map((scan, index) => (
-                      <div
-                        className="trail-item"
-                        key={scan.id}
-                      >
-                        <div className="trail-number">
-                          {index + 1}
-                        </div>
+          <CasesTable
+            cases={cases}
+            counts={counts}
+            loading={loading}
+            search={search}
+            onSearch={setSearch}
+            statusFilter={statusFilter}
+            onStatusFilter={setStatusFilter}
+            selectedId={selectedCase?.id}
+            claimingId={claimingId}
+            currentTenantId={session?.tenantId}
+            onView={openCase}
+            onClaim={claimCase}
+          />
+        </main>
 
-                        <div className="trail-content">
-                          <strong>
-                            {getLocationName(
-                              scan.latitude,
-                              scan.longitude
-                            )}
-                          </strong>
+        <footer className="footer">
+          <span>PlateScan · Case Matching Platform</span>
+          <span>Press Esc to close case details</span>
+        </footer>
 
-                          <span>
-                            {new Date(
-                              scan.scanned_at
-                            ).toLocaleString()}
-                          </span>
-
-                          <small>
-                            Coordinates:{" "}
-                            {scan.latitude},{" "}
-                            {scan.longitude}
-                          </small>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="table-container scan-table">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>#</th>
-                        <th>Plate</th>
-                        <th>Location</th>
-                        <th>Coordinates</th>
-                        <th>Scanned At</th>
-                        <th>Image</th>
-                      </tr>
-                    </thead>
-
-                    <tbody>
-                      {scans.map((scan, index) => (
-                        <tr key={scan.id}>
-                          <td>{index + 1}</td>
-
-                          <td>
-                            <strong>{scan.plate}</strong>
-                          </td>
-
-                          <td>
-                            <strong>
-                              {getLocationName(
-                                scan.latitude,
-                                scan.longitude
-                              )}
-                            </strong>
-                          </td>
-
-                          <td>
-                            {scan.latitude},{" "}
-                            {scan.longitude}
-                          </td>
-
-                          <td>
-                            {new Date(
-                              scan.scanned_at
-                            ).toLocaleString()}
-                          </td>
-
-                          <td>
-                            {scan.image_url ? (
-                              <a
-                                href={scan.image_url}
-                                target="_blank"
-                                rel="noreferrer"
-                              >
-                                View Image
-                              </a>
-                            ) : (
-                              "—"
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            )}
-          </section>
-        )}
-      </main>
-    </div>
+        <ScanTimeline
+          caseItem={selectedCase}
+          scans={scans}
+          loading={scansLoading}
+          claimingId={claimingId}
+          onClaim={claimCase}
+          onClose={closeCase}
+        />
+      </div>
+    </MotionConfig>
   );
 }
 
