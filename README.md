@@ -1,7 +1,16 @@
 # Plate Scan – License Plate Case Matching System
 
 Plate Scan is a full-stack application designed to process vehicle license plate scans, match vehicles against active cases, and support location-based case tracking and partner workflows.
+## Application Screenshots
 
+### Main Application
+![Main Application](docs/screenshots/screen-1.png)
+
+### Plate Scanning
+![Plate Scanning](docs/screenshots/screen-2.png)
+
+### Case Matching
+![Case Matching](docs/screenshots/screen-3.png)
 ## Features
 
 - License plate scan ingestion
