@@ -4,13 +4,8 @@ Plate Scan is a full-stack application designed to process vehicle license plate
 
 ## Application Screenshots
 
-### Main Application
 ![Main Application](docs/screenshots/screen-1.png)
-
-### Plate Scanning
 ![Plate Scanning](docs/screenshots/screen-2.png)
-
-### Case Matching
 ![Case Matching](docs/screenshots/screen-3.png)
 
 ## Features
