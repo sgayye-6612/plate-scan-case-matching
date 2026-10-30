@@ -1,19 +1,61 @@
-# PlateScan – Plate Scan & Case Matching Service
+# Plate Scan – License Plate Case Matching System
 
-React + Vite + Motion frontend, FastAPI + PostgreSQL backend.
+Plate Scan is a full-stack application designed to process vehicle license plate scans, match vehicles against active cases, and support location-based case tracking and partner workflows.
 
-## Run it (Windows)
-1. Make sure PostgreSQL is running and the database in `backend\.env` exists.
-2. Double-click `1-start-backend.bat`  -> http://localhost:8000
-3. Double-click `2-start-frontend.bat` -> http://localhost:5173
-4. Optional: double-click `3-reset-demo-data.bat` for clean demo data.
+## Features
 
-Login: `agent_a` / `password123` (or `agent_b`).
+- License plate scan ingestion
+- Vehicle identification and case matching
+- VIN-based active case lookup
+- Vehicle scan history and location tracking
+- Partner eligibility verification
+- Case claim workflow
+- RESTful API integration
 
-## Structure
-- `backend/app` – FastAPI app (routes, auth, models, seed)
-- `frontend/src/App.jsx` – login, dashboard, API calls
-- `frontend/src/components/StatCard.jsx` – animated dashboard cards
-- `frontend/src/components/CasesTable.jsx` – search, filter, sort, claim
-- `frontend/src/components/ScanTimeline.jsx` – scan history drawer
-- `frontend/src/lib/format.js` – helpers
+## Tech Stack
+
+**Frontend:** React 19, Vite, Tailwind CSS 4, Motion
+
+**Backend:** Python, FastAPI, Uvicorn
+
+**Database:** PostgreSQL, SQLAlchemy
+
+**API Documentation:** Swagger / OpenAPI
+
+## Project Structure
+
+```text
+plate-scan-case-matching/
+├── backend/
+│   └── app/
+├── frontend/
+└── README.md
+```
+
+## Getting Started
+
+### Backend
+
+```bash
+cd backend
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+```
+
+API documentation: `http://127.0.0.1:8000/docs`
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+## Author
+
+**Sahithi Gayye**
+
+AI Engineer | Full Stack Developer
+
+[GitHub](https://github.com/sgayye-6612)
