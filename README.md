@@ -1,6 +1,7 @@
 # Plate Scan – License Plate Case Matching System
 
 Plate Scan is a full-stack application designed to process vehicle license plate scans, match vehicles against active cases, and support location-based case tracking and partner workflows.
+
 ## Application Screenshots
 
 ### Main Application
@@ -11,6 +12,7 @@ Plate Scan is a full-stack application designed to process vehicle license plate
 
 ### Case Matching
 ![Case Matching](docs/screenshots/screen-3.png)
+
 ## Features
 
 - License plate scan ingestion
@@ -43,17 +45,19 @@ plate-scan-case-matching/
 
 ## Getting Started
 
-### Backend
+### Backend Setup
 
 ```bash
 cd backend
 pip install -r requirements.txt
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload --port 8000
 ```
 
-API documentation: `http://127.0.0.1:8000/docs`
+API documentation: http://127.0.0.1:8000/docs
 
-### Frontend
+### Frontend Setup
+
+Open a separate terminal:
 
 ```bash
 cd frontend
@@ -61,10 +65,16 @@ npm install
 npm run dev
 ```
 
+Frontend URL: http://localhost:5173
+
 ## Author
 
 **Sahithi Gayye**
 
 AI Engineer | Full Stack Developer
 
-[GitHub](https://github.com/sgayye-6612)
+[GitHub Profile](https://github.com/sgayye-6612)
+
+---
+
+*Developed using React, FastAPI, and PostgreSQL.*
