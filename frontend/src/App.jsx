@@ -25,7 +25,7 @@ import CasesTable from "./components/CasesTable.jsx";
 import ScanTimeline from "./components/ScanTimeline.jsx";
 import { statusKey, toList } from "./lib/format.js";
 
-const API_URL = "http://localhost:8000";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const SESSION_KEY = "platescan-session";
 
 // Keeps you signed in after a page refresh (cleared on sign out / tab close).
